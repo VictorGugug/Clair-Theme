@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.1.4';
+  const VERSION = '1.2.0';
   const REPO = 'https://github.com/VictorGugug/Clair-Theme';
   const PERF_REPO = 'https://github.com/VictorGugug/clair-perf';
 
@@ -44,6 +44,8 @@
   const CLOSE = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
   const PEEK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 8s2.4-4.75 6.5-4.75S14.5 8 14.5 8 12.1 12.75 8 12.75 1.5 8 1.5 8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="8" r="2.1" stroke="currentColor" stroke-width="1.4"/></svg>';
   const ARROW = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2.5 7.5 7.5 2.5M7.5 2.5H3.5M7.5 2.5V6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const CHEVRON = '<svg class="clair-select-chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.75 5 6.75 8 3.75" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const CHECK = '<svg class="clair-option-check" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.25 5 8.75 9.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const SEARCH = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="m9.5 9.5 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
   const TAB_ICONS = {
     appearance: '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.2a8.8 8.8 0 0 1 0 17.6Z" fill="currentColor"/></svg>',
@@ -331,6 +333,8 @@ void main(){
     const canvas = Object.assign(document.createElement('canvas'), { id: 'clair-bg' });
     const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, powerPreference: 'low-power' });
     if (!gl) return null;
+    const listeners = new AbortController();
+    const { signal } = listeners;
     const half = gl.getExtension('OES_texture_half_float');
     const texType = half && gl.getExtension('OES_texture_half_float_linear') ? half.HALF_FLOAT_OES : gl.UNSIGNED_BYTE;
 
@@ -386,6 +390,7 @@ void main(){
     let focused = true;
 
     const render = () => {
+      if (gl.isContextLost()) return;
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.useProgram(mainProgram.p);
@@ -415,7 +420,7 @@ void main(){
       render();
     };
     const start = () => {
-      if (!raf) raf = requestAnimationFrame(loop);
+      if (!raf && !gl.isContextLost()) raf = requestAnimationFrame(loop);
     };
 
     const resize = () => {
@@ -424,28 +429,35 @@ void main(){
       canvas.height = Math.max(1, Math.round(innerHeight * RES));
       render();
     };
-    addEventListener('resize', resize);
+    addEventListener('resize', resize, { signal });
     addEventListener('focus', () => {
       focused = true;
       start();
-    });
+    }, { signal });
     addEventListener('blur', () => {
       focused = false;
-    });
+    }, { signal });
     document.addEventListener('visibilitychange', () => {
       render();
       start();
-    });
+    }, { signal });
+    canvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }, { signal });
 
     return {
       canvas,
       resize,
+      destroy: () => listeners.abort(),
       set(values) {
         opts = values;
         render();
         start();
       },
       load(img, passes) {
+        if (gl.isContextLost()) return;
         gl.bindTexture(gl.TEXTURE_2D, source);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
         [cur, next] = [next, cur];
@@ -652,37 +664,143 @@ void main(){
     return row('Background motion', 'Off freezes the animated cover and stops its render loop, even with Spicy Lyrics sync. On follows the song again.', label);
   };
 
+  let selectCount = 0;
   const select = (key, title, description, options, onChange) => {
-    const control = el('select', 'clair-select');
-    control.setAttribute('aria-label', title);
-    options.forEach(({ name, value }) => {
-      const option = el('option', '', name);
-      option.value = value;
-      option.selected = value === get(key);
-      control.append(option);
+    const id = 'clair-select-' + ++selectCount;
+    const button = el('button', 'clair-select');
+    button.type = 'button';
+    button.setAttribute('role', 'combobox');
+    button.setAttribute('aria-label', title);
+    button.setAttribute('aria-haspopup', 'listbox');
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-controls', id);
+    button.style.setProperty('anchor-name', '--' + id);
+    const value = el('span', 'clair-select-value');
+    const list = el('ul', 'clair-listbox');
+    list.id = id;
+    list.popover = 'auto';
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', title);
+    list.style.setProperty('position-anchor', '--' + id);
+    list.onmousedown = (event) => event.preventDefault();
+    const labels = [];
+    const items = options.map(({ name, value: optionValue }, i) => {
+      const label = el('span', '', name);
+      labels.push(label);
+      value.append(label);
+      const item = el('li', 'clair-option');
+      item.id = id + '-' + i;
+      item.setAttribute('role', 'option');
+      item.append(el('span', '', name));
+      item.insertAdjacentHTML('beforeend', CHECK);
+      item.onpointermove = () => highlight(i);
+      item.onclick = () => commit(i);
+      list.append(item);
+      return item;
     });
-    control.onchange = () => {
-      set(key, control.value);
-      if (onChange) onChange(control.value);
+    button.append(value);
+    button.insertAdjacentHTML('beforeend', CHEVRON);
+    let selected = 0;
+    let active = 0;
+    const show = () => {
+      selected = Math.max(0, options.findIndex((option) => option.value === get(key)));
+      labels.forEach((label, i) => label.toggleAttribute('data-current', i === selected));
+      items.forEach((item, i) => item.setAttribute('aria-selected', String(i === selected)));
+    };
+    const highlight = (i) => {
+      active = (i + items.length) % items.length;
+      items.forEach((item, n) => item.toggleAttribute('data-active', n === active));
+      button.setAttribute('aria-activedescendant', items[active].id);
+      items[active].scrollIntoView({ block: 'nearest' });
+    };
+    const commit = (i) => {
+      list.hidePopover();
+      if (options[i].value === get(key)) return;
+      set(key, options[i].value);
+      show();
+      if (onChange) onChange(options[i].value);
       apply();
     };
-    return row(title, description, control);
+    const isOpen = () => list.matches(':popover-open');
+    list.ontoggle = (event) => {
+      const open = event.newState === 'open';
+      button.setAttribute('aria-expanded', String(open));
+      if (open) highlight(selected);
+      else button.removeAttribute('aria-activedescendant');
+    };
+    button.onclick = () => (isOpen() ? list.hidePopover() : list.showPopover());
+    button.onkeydown = (event) => {
+      const open = isOpen();
+      const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+      if (step) {
+        event.preventDefault();
+        if (open) highlight(active + step);
+        else list.showPopover();
+      } else if (open && (event.key === 'Home' || event.key === 'End')) {
+        event.preventDefault();
+        highlight(event.key === 'Home' ? 0 : items.length - 1);
+      } else if (open && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        commit(active);
+      } else if (open && event.key === 'Tab') {
+        list.hidePopover();
+      }
+    };
+    show();
+    const wrap = el('div', 'clair-select-wrap');
+    wrap.append(button, list);
+    return row(title, description, wrap);
   };
 
   const range = (key, title, description, min, max, unit = '') => {
     const control = el('input', 'clair-range');
-    const value = el('span', 'clair-value', get(key) + unit);
+    const value = el('label', 'clair-value');
+    const field = el('input', 'clair-value-input');
     const wrap = el('div', 'clair-range-wrap');
     control.type = 'range';
     control.min = min;
     control.max = max;
     control.value = get(key);
     control.setAttribute('aria-label', title);
-    control.oninput = () => {
-      value.textContent = control.value + unit;
-      set(key, control.value);
+    field.type = 'text';
+    field.inputMode = 'numeric';
+    field.spellcheck = false;
+    field.setAttribute('aria-label', title + ' value');
+    const show = (text) => {
+      field.value = text;
+      field.size = Math.max(String(text).length, 2);
+    };
+    show(get(key));
+    const store = (text) => {
+      set(key, text);
       apply();
     };
+    control.oninput = () => {
+      show(control.value);
+      store(control.value);
+    };
+    field.onfocus = () => field.select();
+    field.oninput = () => {
+      field.size = Math.max(field.value.length, 2);
+    };
+    field.onchange = () => {
+      const number = parseInt(field.value, 10);
+      if (Number.isNaN(number)) return show(get(key));
+      const next = String(Math.max(min, Math.min(max, number)));
+      control.value = next;
+      show(next);
+      if (next !== get(key)) store(next);
+    };
+    field.onkeydown = (event) => {
+      if (event.key === 'Enter') field.blur();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        show(get(key));
+        field.blur();
+      }
+    };
+    value.append(field);
+    if (unit) value.append(el('span', 'clair-value-unit', unit));
     wrap.append(control, value);
     return row(title, description, wrap);
   };
@@ -749,6 +867,22 @@ void main(){
     ];
   };
 
+  const debugInfo = () => {
+    const perf = perfApi()?.report();
+    const lines = [
+      ['Clair', VERSION],
+      ['Spotify', Spicetify.Platform?.version || 'unknown'],
+      ['Spicetify', Spicetify.Config?.version || 'unknown'],
+      ['Spicy Lyrics', window._spicy_lyrics ? 'installed' : 'not installed'],
+      ['clair-perf', perf ? perf.version + ', ' + (perf.enabled ? perf.level : 'disabled') : 'not installed'],
+      ['WebGL background', bg ? 'on' : 'unavailable'],
+      ['Window', innerWidth + 'x' + innerHeight + ' @' + devicePixelRatio],
+      ['Platform', navigator.userAgentData?.platform || navigator.platform],
+      ['Settings', JSON.stringify(state())],
+    ];
+    return lines.map(([name, value]) => name + ': ' + value).join('\n');
+  };
+
   const aboutGroups = () => {
     const hero = el('div', 'clair-about-hero');
     hero.append(
@@ -768,6 +902,18 @@ void main(){
       link.insertAdjacentHTML('beforeend', ARROW);
       links.append(link);
     });
+    const copy = el('button', 'clair-about-link');
+    copy.type = 'button';
+    copy.append(el('span', null, 'Copy debug info'));
+    copy.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(debugInfo());
+        Spicetify.showNotification?.('Clair debug info copied. Paste it into your issue.');
+      } catch {
+        Spicetify.showNotification?.('Could not copy the debug info.', true);
+      }
+    };
+    links.append(copy);
     const about = el('div', 'clair-about');
     about.append(hero, links);
     const note = el('p', 'clair-about-note', 'Clair is an independent theme. Not official, and not associated or affiliated with Spicy Lyrics.');
@@ -821,7 +967,7 @@ void main(){
       return;
     }
     const names = { off: 'Off', lite: 'Lite', low: 'Low' };
-    put('state', (names[data.level] || 'Off') + (data.forced ? ' (manual)' : ''));
+    put('state', (names[data.level] || 'Off') + (data.forced ? ' (manual)' : data.sampling === false ? ' (idle)' : ''));
     put('fps', data.fps ? data.fps + ' fps' : 'n/a');
     put('p90', data.p90 ? data.p90 + ' ms' : 'n/a');
     put('heap', typeof data.heap === 'number' ? data.heap + ' MB' : 'n/a');
@@ -886,7 +1032,7 @@ void main(){
       { name: 'Lite (6px blur)', value: 'lite' },
       { name: 'Low (no backdrop filter)', value: 'low' },
     ], (value) => window.ClairPerf?.set(value));
-    mode.querySelector('select').disabled = !installed;
+    mode.querySelector('.clair-select').disabled = !installed;
     const groups = [
       {
         title: 'Performance extension',
@@ -1238,20 +1384,32 @@ void main(){
     }
   };
 
+  const mountBackground = () => {
+    let next = null;
+    try {
+      next = createBackground();
+    } catch {}
+    if (!next) return;
+    next.canvas.addEventListener('webglcontextrestored', () => {
+      next.destroy();
+      mountBackground();
+      apply();
+    }, { once: true });
+    if (bg?.canvas.isConnected) bg.canvas.replaceWith(next.canvas);
+    else document.body.prepend(next.canvas);
+    bg = next;
+    bgArt = '';
+    bg.resize();
+  };
+
   const boot = () => {
     if (!(document.body && window.Spicetify?.Player?.addEventListener && Spicetify.GraphQL && Spicetify.LocalStorage && Spicetify.Platform?.History)) {
       setTimeout(boot, 200);
       return;
     }
-    try {
-      bg = createBackground();
-    } catch {}
     document.body.prepend(staticBg);
     document.body.append(controlsBg);
-    if (bg) {
-      document.body.prepend(bg.canvas);
-      bg.resize();
-    }
+    mountBackground();
     buildDialog();
     watchSpicy();
     try {

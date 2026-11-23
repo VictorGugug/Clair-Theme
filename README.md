@@ -35,9 +35,9 @@ Click the gear button next to your avatar (top right). The window uses the same 
 | Color | Accent (cover art, presets or custom), Custom color, Surface tint |
 | More | Window controls (Default, Clair, or No controls), Minimal mode (hides friend activity), Maximum performance, Reset |
 | Experiments | clair-perf status and on/off switch, opt-in live monitor when the extension is installed, Instant UI, Optimize to the max |
-| About | Theme version, repository and issue tracker links, and the independence note |
+| About | Theme version, repository and issue tracker links, Copy debug info, and the independence note |
 
-The search box filters rows on every tab and dims the tabs with no match.
+The search box filters rows on every tab and dims the tabs with no match. Every slider value can also be typed: click the number, enter a value and press Enter (Escape cancels).
 
 Hold the eye button in the header to step the whole window aside and look at the app behind it.
 
@@ -53,6 +53,13 @@ The same tab has **Instant UI** and **Optimize to the max**: still background, n
 
 Clair itself avoids scroll-linked work: the animated artist header no longer runs a scroll timeline, artist pages use the route instead of a `:has()` on the main view, the background stops when Spotify loses focus, and the WebGL loop is capped at 30 fps and stops entirely at Background motion 0. The only deliberately expensive effect left is the `clair-glass` backdrop blur; Glass blur 0 removes it, and the governor can lower it temporarily without touching your setting.
 
+## Troubleshooting
+
+- **Black or frozen background after sleep or a GPU driver update**: Clair rebuilds the background when the graphics context comes back. If it stays black, restart Spotify.
+- **Styling broke after a Spotify update**: run `spicetify restore backup apply`, then `spicetify backup apply`.
+- **Scrolling feels heavy**: lower Glass blur, set Background motion to 0, or install clair-perf so the blur drops only while Spotify is dropping frames.
+- **Reporting a bug**: open Settings, About, click **Copy debug info** and paste it into the issue. It lists the Clair, Spotify and Spicetify versions, whether Spicy Lyrics and clair-perf are installed, the window size and your Clair settings; it holds no account data.
+
 ## Uninstall
 
 ```powershell
@@ -60,14 +67,12 @@ powershell -ExecutionPolicy Bypass -File .\UNINSTALL.ps1
 powershell -ExecutionPolicy Bypass -File .\UNINSTALL.ps1 -FullRestore
 ```
 
-After a Spotify update breaks styling: `spicetify restore backup apply`, then `spicetify backup apply`.
-
 ## Schemes
 
 `Clair-Dark` (default) and `Clair-OLED` (pure black). Their `button` color is the fallback accent when cover colors are unavailable.
 
 ## About
 
-Version 1.1.2, also shown in Settings under About.
+Version 1.2.0, also shown in Settings under About.
 
 Clair is an independent theme. It is not official, and it is not associated or affiliated with Spicy Lyrics. Spicy Lyrics is a separate project by its own authors; Clair only reads its settings when Sync is on.
